@@ -17,7 +17,11 @@ function plan(extra = 0) {
     .sort((a, b) => state.cards[a.id].due.localeCompare(state.cards[b.id].due))
     .slice(0, MAX_REVIEWS);
   const room = Math.max(0, state.settings.newPerDay - (state.days[t]?.fresh ?? 0)) + extra;
-  const fresh = all.filter(c => !state.cards[c.id]).slice(0, room);
+  // New cards come from the chosen level only (learner-added cards have none and always come);
+  // reviews come from every level.
+  const fresh = all
+    .filter(c => !state.cards[c.id] && (!c.level || c.level === state.settings.level))
+    .slice(0, room);
   return { due, fresh };
 }
 
@@ -72,6 +76,17 @@ export function grade(card, g, rt = null) {
     else delete state.days[t];
     save();
   };
+}
+
+// How far the learner is through each level: { level: { seen, total } }.
+export function levelProgress() {
+  const out = {};
+  for (const c of CARDS) {
+    const p = (out[c.level] ??= { seen: 0, total: 0 });
+    p.total++;
+    if (state.cards[c.id]) p.seen++;
+  }
+  return out;
 }
 
 // Cards the learner keeps failing or hesitating on, worst first.

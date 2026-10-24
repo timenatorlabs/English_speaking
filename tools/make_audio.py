@@ -5,9 +5,11 @@ with that project's environment (from this project's root):
     C:\\develop\\English_listening\\.venv\\Scripts\\python.exe -I tools\\make_audio.py
 
 Writes:
-    audio/cards/<id>.mp3   one file per card, played instead of browser speech
-                           (iOS mutes browser speech in silent mode, but not audio files)
-    data/audio.js          word start times, for highlighting and the moving playhead
+    audio/cards/<id>.mp3       one file per card, played instead of browser speech
+                               (iOS mutes browser speech in silent mode, but not audio files)
+    audio/rhythm/v2/<id>.mp3   the sentence spoken chunk by chunk with each stressed syllable on
+                               a click (like a jazz chant), then the clicks alone for the learner
+    data/audio.js              word start times and beat layout, for highlighting and the playhead
 Existing MP3s are kept; timings are always re-measured.
 """
 import ast
@@ -29,6 +31,11 @@ LISTENING = ROOT.parent / "English_listening"
 VOICE = LISTENING / "voices" / "en_US-libritts_r-medium.onnx"
 WHISPER_DIR = LISTENING / "models" / "whisper"
 OUT = ROOT / "audio" / "cards"
+RHYTHM_OUT = ROOT / "audio" / "rhythm" / "v2"
+
+COUNT_IN = 4           # clicks before the model and before the learner's turn
+RHYTHM_LEAD = 0.3      # seconds before the first count-in click
+MIN_BEAT = 0.5         # seconds; the tempo is as fast as the chunks allow, but no faster than 120 BPM
 
 SPEAKER = 539          # clearest female voice in English_listening/data/voices.json
 LENGTH_SCALE = 1.05    # a touch slower than Piper's default
@@ -41,15 +48,19 @@ NUMBERS = "zero one two three four five six seven eight nine ten eleven twelve".
 SAY = {r"\bIT\b": "I.T."}
 
 # Sentences Piper garbles when spoken alone: synthesized after a lead-in word that is then cut off.
-LEAD = {"It can't be helped.": ("Well,", 1.3)}   # sentence -> (lead-in, length scale)
+LEAD = {   # sentence -> (lead-in, length scale)
+    "It can't be helped.": ("Well,", 1.3),
+    "There's no harm in trying.": ("Well,", 1.1),
+}
 
 
 def cards():
+    """(model sentence, rhythm-marked sentence) for every built-in card."""
     for line in (ROOT / "data" / "cards.js").read_text(encoding="utf-8").splitlines():
         s = line.strip()
         if s.startswith("['"):
             _, rhythm = ast.literal_eval(s.rstrip(","))
-            yield re.sub(r"[*·]", "", rhythm)
+            yield re.sub(r"[*·]", "", rhythm), rhythm
 
 
 def norm(word: str) -> str:
@@ -86,12 +97,13 @@ def synthesize(voice: PiperVoice, text: str, whisper: WhisperModel) -> tuple[np.
 
 
 def word_starts(model: WhisperModel, path: Path, sentence: str) -> tuple[list[float], float]:
-    """Start time of every whitespace-separated word of `sentence`, and the share Whisper heard."""
     # Decoded here rather than by faster-whisper: the environment's PyAV is newer than it expects.
-    audio, rate = sf.read(path, dtype="float32")
-    if audio.ndim > 1:
-        audio = audio.mean(axis=1)
-    segments, _ = model.transcribe(to16k(audio, rate), language="en", word_timestamps=True, beam_size=5)
+    return word_starts_in(model, *read_mono(path), sentence)
+
+
+def word_starts_in(model: WhisperModel, audio: np.ndarray, rate: int, sentence: str) -> tuple[list[float], float]:
+    """Start time of every whitespace-separated word of `sentence`, and the share Whisper heard."""
+    segments, _ = model.transcribe(to16k(audio.astype(np.float32), rate), language="en", word_timestamps=True, beam_size=5)
     heard = [w for seg in segments for w in seg.words]
     ours = [norm(w) for w in sentence.split()]
     theirs = [norm(w.word) for w in heard]
@@ -118,14 +130,107 @@ def word_starts(model: WhisperModel, path: Path, sentence: str) -> tuple[list[fl
     return [round(s, 3) for s in starts], matched
 
 
+def read_mono(path: Path) -> tuple[np.ndarray, int]:
+    audio, rate = sf.read(path, dtype="float32")
+    return (audio.mean(axis=1) if audio.ndim > 1 else audio), rate
+
+
+def chunks(rhythm: str) -> list[dict]:
+    """Splits a rhythm-marked sentence before each word that carries a stress, so weak words lean
+    on the stress that follows them ("as an engineer"); words after the last stress join the last
+    chunk. Each chunk: its text, its syllables (stressed or not), and how many stresses it has."""
+    out = []
+    for token in rhythm.split():
+        sylls = [("*" in p) for p in re.split(r"[·-]", token) if re.sub(r"[^A-Za-z']", "", p)]
+        text = re.sub(r"[*·]", "", token)
+        if out and out[-1]["stresses"] == 0:   # still collecting weak words before a stress
+            out[-1]["text"] += " " + text
+            out[-1]["sylls"] += sylls
+            out[-1]["stresses"] += sum(sylls)
+        else:
+            out.append({"text": text, "sylls": sylls, "stresses": sum(sylls)})
+    if len(out) > 1 and out[-1]["stresses"] == 0:   # trailing weak words
+        last = out.pop()
+        out[-1]["text"] += " " + last["text"]
+        out[-1]["sylls"] += last["sylls"]
+    return out
+
+
+def stressed_peak(audio: np.ndarray, rate: int, sylls: list[bool]) -> float:
+    """Time of the first stressed syllable in a chunk: the loudest point of its share of the speech,
+    a little early (a syllable's beat is felt slightly before its loudest point)."""
+    hop = int(0.01 * rate)
+    env = np.sqrt(np.convolve(audio ** 2, np.ones(2 * hop) / (2 * hop), mode="same"))[::hop]
+    loud = np.flatnonzero(env > env.max() * 0.1)
+    s, e = loud[0], loud[-1] + 1
+    j = sylls.index(True)
+    a = s + (e - s) * j // len(sylls)
+    b = max(a + 1, s + (e - s) * (j + 1) // len(sylls))
+    return max(0.0, (a + int(np.argmax(env[a:b]))) / 100 - 0.03)
+
+
+def click(rate: int, freq: float, gain: float) -> np.ndarray:
+    t = np.arange(int(0.035 * rate)) / rate
+    return np.sin(2 * np.pi * freq * t) * np.exp(-t * 90) * gain
+
+
+def rhythm_track(voice_model: PiperVoice, model: WhisperModel, en: str, rhythm: str):
+    """Count-in, the sentence chunk by chunk with each stress on a click, count-in, then clicks
+    for the learner's turn. Chunks are synthesized separately and placed, never stretched."""
+    parts = []
+    for ch in chunks(rhythm):
+        pcm, rate = synthesize(voice_model, ch["text"], model)
+        x = pcm.astype(np.float64) / 32768
+        parts.append((x, stressed_peak(x, rate, ch["sylls"]), ch["stresses"]))
+
+    # The tempo is as fast as possible without chunks running into each other.
+    need = MIN_BEAT
+    for (x1, p1, s1), (_, p2, _) in zip(parts, parts[1:]):
+        need = max(need, (len(x1) / rate - p1 + p2 + 0.03) / s1)
+    bpm = max(50, int(60 / need) // 2 * 2)
+    beat = 60 / bpm
+    t0 = RHYTHM_LEAD + COUNT_IN * beat
+    n = sum(s for _, _, s in parts)
+
+    placed = []
+    b = 0
+    for x, peak, s in parts:
+        placed.append((int((t0 + b * beat - peak) * rate), x))
+        b += s
+    voice_end = max(i / rate + len(x) / rate for i, x in placed)
+    voice = np.zeros(int(voice_end * rate) + 1)
+    for i, x in placed:
+        voice[i:i + len(x)] += x
+
+    # the learner's count-in starts on the first free beat after the model has finished
+    you = int(np.ceil((voice_end - t0) / beat)) + 1 + COUNT_IN
+    total = t0 + (you + n - 1) * beat + 0.6
+    out = np.zeros(int(total * rate))
+    out[:len(voice)] += voice / max(1e-6, np.abs(voice).max()) * 0.8
+    lo, hi = click(rate, 900, 0.25), click(rate, 1600, 0.4)
+    beats = [(b, lo) for b in range(-COUNT_IN, 0)] + [(b, hi) for b in range(n)]
+    beats += [(b, lo) for b in range(you - COUNT_IN, you)] + [(you + b, hi) for b in range(n)]
+    for b, c in beats:
+        i = int((t0 + b * beat) * rate)
+        out[i:i + len(c)] += c[:len(out) - i]
+    out = out / max(1e-6, np.abs(out).max()) * 0.9
+
+    # word timings in the track, and an intelligibility check of the voice alone
+    starts, matched = word_starts_in(model, voice, rate, en)
+    info = {"bpm": bpm, "t0": round(t0, 3), "n": n, "you": you, "end": round(voice_end, 3), "t": starts}
+    return (out * 32767).astype(np.int16), rate, info, matched
+
+
 def main() -> None:
     voice = PiperVoice.load(str(VOICE))
     whisper = WhisperModel("base.en", download_root=str(WHISPER_DIR), local_files_only=True, compute_type="int8")
     OUT.mkdir(parents=True, exist_ok=True)
+    RHYTHM_OUT.mkdir(parents=True, exist_ok=True)
     manifest = {}
     made = 0
     weak = []
-    for en in cards():
+    warped_weak = []
+    for en, rhythm in cards():
         name = hashlib.sha1(en.encode("utf-8")).hexdigest()[:10] + ".mp3"
         path = OUT / name
         if not path.exists():
@@ -136,7 +241,16 @@ def main() -> None:
         starts, matched = word_starts(whisper, path, en)
         if matched < 0.8:
             weak.append((round(matched, 2), en))
-        manifest[en] = {"src": f"audio/cards/{name}", "t": starts, "d": round(info.duration, 3)}
+        pcm, rate, beat_info, heard = rhythm_track(voice, whisper, en, rhythm)
+        sf.write(RHYTHM_OUT / name, pcm, rate, format="MP3")
+        if heard < 0.8:
+            warped_weak.append((round(heard, 2), beat_info["bpm"], en))
+        manifest[en] = {
+            "src": f"audio/cards/{name}",
+            "t": starts,
+            "d": round(info.duration, 3),
+            "r": {"src": f"audio/rhythm/v2/{name}", **beat_info},
+        }
 
     body = json.dumps(manifest, ensure_ascii=False, indent=0)
     (ROOT / "data" / "audio.js").write_text(
@@ -149,6 +263,9 @@ def main() -> None:
     print(f"cards={len(manifest)} made={made} size={size / 1e6:.1f}MB")
     for m, en in sorted(weak):
         print(f"  low match {m}: {en}")
+    print(f"rhythm tracks: {len(manifest)}, warped speech heard below 0.8: {len(warped_weak)}")
+    for m, bpm, en in sorted(warped_weak):
+        print(f"  warped {m} at {bpm} BPM: {en}")
 
 
 if __name__ == "__main__":

@@ -196,12 +196,23 @@ const ended = () => {
 };
 player.addEventListener('ended', ended);
 
-export function playAudio(src, onEnd) {
+let playToken = 0;
+
+// rate: playback speed; the pitch is kept, so slower audio sounds like slower speech.
+export function playAudio(src, onEnd, rate = 1) {
   stopSpeaking();
   audioSession('playback');
+  const token = ++playToken;
   onEnded = onEnd;
   player.src = src;
-  player.play().catch(ended);
+  player.preservesPitch = true;
+  player.webkitPreservesPitch = true;
+  player.defaultPlaybackRate = rate;
+  player.playbackRate = rate;
+  // A play() interrupted by the next playback rejects too; only a failure of this one ends it.
+  player.play().catch(() => {
+    if (token === playToken) ended();
+  });
   return player;
 }
 

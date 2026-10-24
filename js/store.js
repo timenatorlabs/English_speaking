@@ -6,7 +6,7 @@ const defaults = () => ({
   version: 1,
   cards: {},      // card id -> { ease, ivl, due, reps, lapses }
   custom: [],     // cards the learner added: { id, ja, en }
-  settings: { newPerDay: 10, talk: 'full' },
+  settings: { newPerDay: 10, talk: 'full', level: 2, rate: 1 },   // level: 1-3 中1-中3, 4-6 高1-高3
   days: {},       // 'YYYY-MM-DD' -> { drill, fresh, n, quick, rtSum, rtN, wpm: [r1, r2, r3] }
   topicIndex: 0,
   notice: false,

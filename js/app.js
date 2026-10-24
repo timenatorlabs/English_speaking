@@ -2,7 +2,8 @@
 
 import { view, keys, chrome, setEscape, leave } from './ui.js';
 import { state, save, streak, previousWpm, today, exportData, importData } from './store.js';
-import { counts } from './srs.js';
+import { counts, levelProgress } from './srs.js';
+import { LEVELS } from '../data/cards.js';
 import { canListen, unlockSpeech } from './speech.js';
 import { runDrill } from './drill.js';
 import { runTalk } from './talk.js';
@@ -35,14 +36,20 @@ function home() {
       ? ['スピーチを始める', () => begin(() => runTalk(complete))]
       : [`追加でドリル(+${EXTRA}枚)`, extraDrill];
 
+  const level = state.settings.level;
+  const progress = levelProgress();
   view(`<div class="home">
     <p class="eyebrow">今日の練習</p>
+    <div class="levels" role="group" aria-label="レベル">
+      ${LEVELS.map((name, i) => `<button class="lv${level === i + 1 ? ' is-on' : ''}" data-level="${i + 1}" type="button">
+        ${name}<small class="num">${progress[i + 1]?.seen ?? 0}/${progress[i + 1]?.total ?? 0}</small></button>`).join('')}
+    </div>
     <div class="menu">
       <button class="row${cards ? '' : ' is-done'}" data-key="1" type="button">
         <span class="row-no">1</span>
         <span class="row-body">
           <span class="row-title">瞬間ドリル</span>
-          <span class="row-desc">日本語を見て、すぐ英語で言う</span>
+          <span class="row-desc">${LEVELS[level - 1]} · 日本語を見て、すぐ英語で言う</span>
         </span>
         <span class="row-state num">${cards
           ? `${cards}枚<small>復習 ${c.due} · 新規 ${c.fresh}</small>`
@@ -61,6 +68,13 @@ function home() {
     <p class="streak">${s ? `${s}日連続` : ''}</p>
     ${state.notice ? '' : '<p class="notice">音声はブラウザの音声認識機能によって、Google や Apple のサーバーで文字に変換されます。</p>'}
   </div>`);
+  document.querySelectorAll('[data-level]').forEach(b => {
+    b.onclick = () => {
+      state.settings.level = Number(b.dataset.level);
+      save();
+      home();
+    };
+  });
   keys({
     Enter: action,
     1: cards ? () => begin(() => runDrill(home, { next: 'ホームへ' })) : extraDrill,

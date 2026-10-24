@@ -4,9 +4,11 @@
 import { view, keys, chrome, onLeave, esc, micError } from './ui.js';
 import { listen, speak, stopSpeaking, playAudio } from './speech.js';
 import { buildQueue, grade } from './srs.js';
-import { previousReaction } from './store.js';
-import { parseRhythm, renderScore, fitScore, follow, playClick, stopClick, BPM } from './score.js';
+import { previousReaction, state, save } from './store.js';
+import { parseRhythm, renderScore, fitScore, follow, playClick, playRhythm, stopClick, BPM } from './score.js';
 import { AUDIO } from '../data/audio.js';
+
+const RATES = [1, 0.85, 0.7];
 
 const LABELS = { 1: '言えなかった', 2: '詰まった', 3: 'すぐ言えた' };
 
@@ -94,7 +96,7 @@ export function runDrill(done, { extra = 0, next: nextLabel = 'スピーチへ' 
     const sug = suggest(c.score, rt, said);
     const rhythm = item.card.rhythm ? parseRhythm(item.card.rhythm) : null;
     const me = ++screen;
-    chrome({ step: 1, info: remaining(), keyHint: '1 2 3 評価 · Enter 決定 · R お手本 · Space 繰り返す · B リズム · ← 前の問題', back: backButton() });
+    chrome({ step: 1, info: remaining(), keyHint: '1 2 3 評価 · Enter 決定 · R お手本 · S 速さ · Space 繰り返す · B リズム · ← 前の問題', back: backButton() });
     view(`<div class="drill">
       <p class="ja-sub">${esc(item.card.ja)}</p>
       <p class="en-model">${c.modelHtml}</p>
@@ -104,8 +106,9 @@ export function runDrill(done, { extra = 0, next: nextLabel = 'スピーチへ' 
       <p class="meta-line num">${rt === null ? '' : `反応 ${(rt / 1000).toFixed(1)}秒`}</p>
       <div class="tools">
         <button class="pill" data-key="r" type="button">▶ お手本</button>
+        <button class="pill num" id="speed" data-key="s" type="button"></button>
         <button class="pill" id="rep" data-key="Space" type="button">● 繰り返す</button>
-        ${rhythm ? `<button class="pill" data-key="b" type="button">♩ リズム練習 <span class="faint num">${BPM}</span></button>` : ''}
+        ${rhythm ? '<button class="pill" id="rhy" data-key="b" type="button"></button>' : ''}
       </div>
       <div class="grades">
         ${[1, 2, 3].map(g => `<button class="grade${g === sug ? ' is-sug' : ''}" data-key="${g}"><kbd>${g}</kbd>${LABELS[g]}</button>`).join('')}
@@ -147,17 +150,35 @@ export function runDrill(done, { extra = 0, next: nextLabel = 'スピーチへ' 
       next();
     };
 
+    const clip = AUDIO[item.card.en];
+    const rate = () => state.settings.rate ?? 1;
+    const speedBtn = document.getElementById('speed');
+    const rhyBtn = document.getElementById('rhy');
+    const bpm = clip?.r ? clip.r.bpm : BPM;
+    const rhyLabel = () => `♩ リズム <span class="faint">${Math.round(bpm * rate())}</span>`;
+    const showSpeed = () => (speedBtn.textContent = `速さ ${rate().toFixed(2).replace(/0$/, '')}×`);
+    showSpeed();
+    if (rhyBtn) rhyBtn.innerHTML = rhyLabel();
+
     // Built-in cards have a recorded clip whose word timings drive the highlight and playhead;
     // learner-added cards fall back to browser speech.
     function model() {
       quiet();
-      const clip = AUDIO[item.card.en];
       if (clip) {
-        const audio = playAudio(clip.src, endModel);
+        const audio = playAudio(clip.src, endModel, rate());
         stopModel = follow(audio, { root: scoreEl, starts: clip.t, duration: clip.d, onWord: highlight });
       } else {
-        speak(item.card.en, { onWord: highlight });
+        speak(item.card.en, { rate: 0.95 * rate(), onWord: highlight });
       }
+    }
+
+    function changeSpeed() {
+      const i = RATES.indexOf(rate());
+      state.settings.rate = RATES[(i + 1) % RATES.length];
+      save();
+      showSpeed();
+      if (rhyBtn) rhyBtn.innerHTML = rhyLabel();
+      model();
     }
 
     // Listens only when asked, so the microphone starts once per card unless the learner wants more.
@@ -180,9 +201,18 @@ export function runDrill(done, { extra = 0, next: nextLabel = 'スピーチへ' 
       repSaid.innerHTML = `<span class="tag">${again.score >= 0.8 ? '✓ ' : ''}繰り返し</span>${r.text ? again.saidHtml : '<span class="faint">聞き取れませんでした</span>'}`;
     }
 
+    // The model on the beat, then the learner's turn on the same clicks.
     function practiceRhythm() {
       quiet();
-      playClick(document.getElementById('score'), rhythm);
+      if (!clip?.r) return playClick(scoreEl, rhythm, rate());
+      playRhythm(scoreEl, clip.r, {
+        rate: rate(),
+        onWord: highlight,
+        onPhase: p => {
+          rhyBtn.classList.toggle('on', !!p);
+          rhyBtn.innerHTML = p === 'model' ? '♩ お手本の番' : p === 'you' ? '♩ あなたの番' : rhyLabel();
+        },
+      });
     }
     document.getElementById('score')?.addEventListener('click', practiceRhythm);
 
@@ -192,6 +222,7 @@ export function runDrill(done, { extra = 0, next: nextLabel = 'スピーチへ' 
       3: () => commit(3),
       Enter: () => commit(sug),
       r: model,
+      s: changeSpeed,
       Space: repeat,
       ArrowLeft: back,
       ...(rhythm && { b: practiceRhythm }),

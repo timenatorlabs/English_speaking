@@ -196,15 +196,12 @@ export function stopClick() {
   stop?.();
 }
 
-// Four count-in clicks, then one click per stressed syllable while the playhead sweeps the beats.
-export async function playClick(root, { pickup, feet }) {
-  stopClick();
-  const url = clickTrack(feet.length);
-  const beat = 60 / BPM;
+// Lights the beat at `pos` (in beats from the sentence's first stress) and sweeps the playhead
+// across it; the pickup takes the half beat before the first stress.
+function beatSweeper(root) {
   const m = measure(root);
   const beats = m.beats.filter(b => !b.pickup);
   const pick = m.beats.find(b => b.pickup);
-  let raf = 0;
   let lit = null;
   const light = el => {
     if (el === lit) return;
@@ -212,28 +209,89 @@ export async function playClick(root, { pickup, feet }) {
     el?.classList.add('on');
     lit = el;
   };
-  const audio = playAudio(url, () => stopClick());
-  const tick = () => {
-    const pos = (audio.currentTime - LEAD) / beat;   // in beats; downbeat of the sentence at COUNT_IN
-    const j = Math.floor(pos - COUNT_IN);
-    if (pick && pickup.length && pos >= COUNT_IN - 0.5 && pos < COUNT_IN) {
+  const sweep = pos => {
+    const j = Math.floor(pos);
+    if (pick && pos >= -0.5 && pos < 0) {
       light(pick.svg);
-      place(root, pick, beats[0], (pos - (COUNT_IN - 0.5)) / 0.5);
+      place(root, pick, beats[0], (pos + 0.5) / 0.5);
     } else if (j >= 0 && j < beats.length) {
       light(beats[j].svg);
-      place(root, beats[j], beats[j + 1] ?? { x: m.endX, y: beats[j].y }, pos - COUNT_IN - j);
+      place(root, beats[j], beats[j + 1] ?? { x: m.endX, y: beats[j].y }, pos - j);
     } else {
       light(null);
       hidePlayhead(root);
     }
-    raf = requestAnimationFrame(tick);
   };
-  raf = requestAnimationFrame(tick);
+  return { sweep, clear: () => sweep(-99), m };
+}
+
+// Runs tick(audio) every frame until stopped; stopClick() stops it.
+function animate(audio, tick, cleanup) {
+  let raf = 0;
+  const loop = () => {
+    tick(audio.currentTime);
+    raf = requestAnimationFrame(loop);
+  };
+  raf = requestAnimationFrame(loop);
   stopFollow = () => {
     cancelAnimationFrame(raf);
-    stopAudio(audio);
-    light(null);
-    hidePlayhead(root);
-    URL.revokeObjectURL(url);
+    stopAudio();
+    cleanup();
   };
+}
+
+// Clicks alone (for cards without a rhythm recording): four count-in clicks, then one per stress.
+export function playClick(root, { feet }, rate = 1) {
+  stopClick();
+  const url = clickTrack(feet.length);
+  const beat = 60 / BPM;
+  const { sweep, clear } = beatSweeper(root);
+  const audio = playAudio(url, () => stopClick(), rate);
+  animate(audio, t => sweep((t - LEAD) / beat - COUNT_IN), () => {
+    clear();
+    URL.revokeObjectURL(url);
+  });
+}
+
+// The recorded rhythm track: the model sentence with its stresses on the clicks, then the same
+// clicks for the learner. r is the track's layout from data/audio.js.
+// onPhase('model' | 'you' | null) tells whose turn it is; onWord(i) highlights the spoken word.
+export function playRhythm(root, r, { rate = 1, onWord, onPhase }) {
+  stopClick();
+  const beat = 60 / r.bpm;
+  const { sweep, clear, m } = beatSweeper(root);
+  const firstNote = w => m.notes.find(n => n.word === w);
+  let phase;
+  let word = -2;
+  const setPhase = p => {
+    if (p !== phase) onPhase((phase = p));
+  };
+  const setWord = i => {
+    if (i !== word) onWord((word = i));
+  };
+  const audio = playAudio(r.src, () => stopClick(), rate);
+  animate(audio, t => {
+    if (t < r.end) {
+      // model: the playhead follows the spoken words
+      setPhase('model');
+      let i = -1;
+      while (i + 1 < r.t.length && r.t[i + 1] <= t) i++;
+      setWord(i);
+      const a = i >= 0 && firstNote(i);
+      if (a) {
+        const last = i + 1 >= r.t.length;
+        const b = last ? { x: m.endX, y: a.y } : firstNote(i + 1);
+        place(root, a, b, (t - r.t[i]) / Math.max(0.01, (last ? r.end : r.t[i + 1]) - r.t[i]));
+      }
+    } else {
+      // learner's turn: the playhead keeps the beat
+      setPhase('you');
+      setWord(-1);
+      sweep((t - r.t0) / beat - r.you);
+    }
+  }, () => {
+    clear();
+    setWord(-1);
+    setPhase(null);
+  });
 }
