@@ -32,8 +32,10 @@ export function buildQueue(extra = 0) {
 }
 
 // rt: milliseconds until the learner started speaking, or null if they never did.
+// Returns a function that undoes this grade (for going back to the previous card).
 export function grade(card, g, rt = null) {
   const t = today();
+  const before = { card: state.cards[card.id] && { ...state.cards[card.id] }, day: state.days[t] && { ...state.days[t] } };
   const d = day(t);
   d.n = (d.n ?? 0) + 1;
   if (g === 3) d.quick = (d.quick ?? 0) + 1;
@@ -63,6 +65,13 @@ export function grade(card, g, rt = null) {
   state.cards[card.id] = r;
   d.drill++;
   save();
+  return () => {
+    if (before.card) state.cards[card.id] = before.card;
+    else delete state.cards[card.id];
+    if (before.day) state.days[t] = before.day;
+    else delete state.days[t];
+    save();
+  };
 }
 
 // Cards the learner keeps failing or hesitating on, worst first.

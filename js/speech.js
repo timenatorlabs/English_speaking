@@ -182,15 +182,69 @@ export function speak(text, { rate = 0.95, onWord } = {}) {
   });
 }
 
-// iOS only lets a page speak after speech was started from a tap; call this from one.
+// ---------- audio files ----------
+// Model sentences and the click track are played as audio files through one element:
+// unlike browser speech and Web Audio, files play on iOS with the silent switch on.
+
+const player = new Audio();
+player.preload = 'auto';
+let onEnded = null;
+const ended = () => {
+  const f = onEnded;
+  onEnded = null;
+  f?.();
+};
+player.addEventListener('ended', ended);
+
+export function playAudio(src, onEnd) {
+  stopSpeaking();
+  audioSession('playback');
+  onEnded = onEnd;
+  player.src = src;
+  player.play().catch(ended);
+  return player;
+}
+
+export function stopAudio() {
+  onEnded = null;
+  player.pause();
+}
+
+// Mono 16-bit PCM -> object URL of a WAV file.
+export function wavUrl(pcm, rate) {
+  const header = new DataView(new ArrayBuffer(44));
+  const str = (o, s) => [...s].forEach((c, i) => header.setUint8(o + i, c.charCodeAt(0)));
+  str(0, 'RIFF');
+  header.setUint32(4, 36 + pcm.byteLength, true);
+  str(8, 'WAVEfmt ');
+  header.setUint32(16, 16, true);
+  header.setUint16(20, 1, true);
+  header.setUint16(22, 1, true);
+  header.setUint32(24, rate, true);
+  header.setUint32(28, rate * 2, true);
+  header.setUint16(32, 2, true);
+  header.setUint16(34, 16, true);
+  str(36, 'data');
+  header.setUint32(40, pcm.byteLength, true);
+  return URL.createObjectURL(new Blob([header, pcm], { type: 'audio/wav' }));
+}
+
+const silence = wavUrl(new Int16Array(800), 8000);
+
+// iOS only lets a page play sound it started from a tap; call this from one so later
+// playback (after recognition ends, not from a tap) is allowed.
 export function unlockSpeech() {
+  player.src = silence;
+  player.play().then(() => player.pause(), () => {});
   if (!('speechSynthesis' in window)) return;
   const u = new SpeechSynthesisUtterance(' ');
   u.volume = 0;
   speechSynthesis.speak(u);
 }
 
+// Stops any model sound: browser speech and audio files.
 export function stopSpeaking() {
+  stopAudio();
   if ('speechSynthesis' in window) speechSynthesis.cancel();
 }
 

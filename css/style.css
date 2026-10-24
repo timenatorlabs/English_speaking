@@ -67,7 +67,10 @@ header {
 header[hidden] { display: none; }
 #homeBtn { justify-self: start; padding: 6px 12px; }
 #where { color: var(--ink); font-weight: 500; white-space: nowrap; }
-#meta { justify-self: end; white-space: nowrap; }
+.hright { justify-self: end; display: flex; align-items: center; gap: 8px; }
+#meta { white-space: nowrap; }
+#backBtn { padding: 6px 12px; }
+#backBtn[hidden] { display: none; }
 
 main {
   grid-row: 2;
@@ -355,6 +358,7 @@ kbd {
 }
 .score:hover { background: var(--accent-soft); }
 .score { position: relative; }
+/* Moved every frame from the audio clock, so only its fade is animated. */
 .playhead {
   position: absolute;
   left: 0;
@@ -364,7 +368,7 @@ kbd {
   background: var(--accent);
   opacity: 0;
   pointer-events: none;
-  transition: transform .2s linear, opacity .15s;
+  transition: opacity .15s;
 }
 .playhead.on { opacity: .8; }
 .bars { display: flex; flex-wrap: wrap; justify-content: flex-start; row-gap: 4px; max-width: 100%; }

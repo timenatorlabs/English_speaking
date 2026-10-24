@@ -2,10 +2,11 @@
 // The session ends with a short review of how it went.
 
 import { view, keys, chrome, onLeave, esc, micError } from './ui.js';
-import { listen, speak, stopSpeaking } from './speech.js';
+import { listen, speak, stopSpeaking, playAudio } from './speech.js';
 import { buildQueue, grade } from './srs.js';
 import { previousReaction } from './store.js';
-import { parseRhythm, renderScore, fitScore, playClick, stopClick, movePlayhead, BPM } from './score.js';
+import { parseRhythm, renderScore, fitScore, follow, playClick, stopClick, BPM } from './score.js';
+import { AUDIO } from '../data/audio.js';
 
 const LABELS = { 1: '言えなかった', 2: '詰まった', 3: 'すぐ言えた' };
 
@@ -15,14 +16,28 @@ export function runDrill(done, { extra = 0, next: nextLabel = 'スピーチへ' 
   if (!items.length) return done();
 
   const results = [];   // first attempt of each card: { card, g, rt, said, score }
+  const history = [];   // answered cards, newest last: { item, undo, result, retry }
+  let current = null;
+  let screen = 0;       // bumped on every new screen, so late async work can tell it is stale
   let alive = true;
   let mic = null;
+  let stopModel = null;
   const remaining = () => `残り ${items.length + 1}`;
-  onLeave(() => {
-    alive = false;
+  const endModel = () => {
+    const stop = stopModel;
+    stopModel = null;
+    stop?.();
+  };
+  const silence = () => {
     mic?.stop();
+    mic = null;
+    endModel();
     stopSpeaking();
     stopClick();
+  };
+  onLeave(() => {
+    alive = false;
+    silence();
   });
   next();
 
@@ -32,8 +47,28 @@ export function runDrill(done, { extra = 0, next: nextLabel = 'スピーチへ' 
     ask(item);
   }
 
+  // Undoes the last grade and asks that card again; the current card goes back to the front.
+  function back() {
+    const h = history.pop();
+    if (!h) return;
+    silence();
+    h.undo?.();
+    if (h.result) results.pop();
+    if (h.retry) {
+      const k = items.indexOf(h.retry);
+      if (k >= 0) items.splice(k, 1);
+    }
+    if (current !== h.retry) items.unshift(current);
+    ask(h.item);
+  }
+  function backButton() {
+    return history.length ? back : null;
+  }
+
   function ask(item) {
-    chrome({ step: 1, info: remaining(), keyHint: 'Space 答え合わせ · Esc 中断' });
+    current = item;
+    screen++;
+    chrome({ step: 1, info: remaining(), keyHint: 'Space 答え合わせ · ← 前の問題 · Esc 中断', back: backButton() });
     view(`<div class="drill">
       ${item.retry ? '<p class="eyebrow">もう一度</p>' : ''}
       <p class="ja-prompt">${esc(item.card.ja)}</p>
@@ -45,7 +80,7 @@ export function runDrill(done, { extra = 0, next: nextLabel = 'スピーチへ' 
     const shownAt = performance.now();
     const l = listen({ silenceMs: 1800, onUpdate: t => (live.textContent = t) });
     mic = l;
-    keys({ Space: l.stop, Enter: l.stop });
+    keys({ Space: l.stop, Enter: l.stop, ArrowLeft: back });
     l.done.then(r => {
       if (!alive || mic !== l) return;
       mic = null;
@@ -58,7 +93,8 @@ export function runDrill(done, { extra = 0, next: nextLabel = 'スピーチへ' 
     const c = compare(item.card.en, said);
     const sug = suggest(c.score, rt, said);
     const rhythm = item.card.rhythm ? parseRhythm(item.card.rhythm) : null;
-    chrome({ step: 1, info: remaining(), keyHint: '1 2 3 評価 · Enter 決定 · R お手本 · Space 繰り返す · B リズム' });
+    const me = ++screen;
+    chrome({ step: 1, info: remaining(), keyHint: '1 2 3 評価 · Enter 決定 · R お手本 · Space 繰り返す · B リズム · ← 前の問題', back: backButton() });
     view(`<div class="drill">
       <p class="ja-sub">${esc(item.card.ja)}</p>
       <p class="en-model">${c.modelHtml}</p>
@@ -83,17 +119,11 @@ export function runDrill(done, { extra = 0, next: nextLabel = 'スピーチへ' 
     const words = [...document.querySelectorAll('.drill [data-w]')];
     const scoreEl = document.getElementById('score');
     fitScore(scoreEl);
-    const highlight = i => {
-      words.forEach(el => el.classList.toggle('speaking', Number(el.dataset.w) === i));
-      movePlayhead(scoreEl, scoreEl?.querySelector(`.beat g[data-w="${i}"] .head`));
-    };
+    const highlight = i => words.forEach(el => el.classList.toggle('speaking', Number(el.dataset.w) === i));
 
     const quiet = () => {
       playId++;
-      mic?.stop();
-      mic = null;
-      stopSpeaking();
-      stopClick();
+      silence();
       highlight(-1);
       rep.classList.remove('on');
       rep.textContent = '● 繰り返す';
@@ -103,17 +133,31 @@ export function runDrill(done, { extra = 0, next: nextLabel = 'スピーチへ' 
       if (finished) return;
       finished = true;
       quiet();
+      const h = { item };
       if (!item.retry) {
-        grade(item.card, g, rt);
+        h.undo = grade(item.card, g, rt);
+        h.result = true;
         results.push({ card: item.card, g, rt, said, score: c.score });
-        if (g === 1) items.push({ card: item.card, retry: true });
+        if (g === 1) {
+          h.retry = { card: item.card, retry: true };
+          items.push(h.retry);
+        }
       }
+      history.push(h);
       next();
     };
 
+    // Built-in cards have a recorded clip whose word timings drive the highlight and playhead;
+    // learner-added cards fall back to browser speech.
     function model() {
       quiet();
-      speak(item.card.en, { onWord: highlight });
+      const clip = AUDIO[item.card.en];
+      if (clip) {
+        const audio = playAudio(clip.src, endModel);
+        stopModel = follow(audio, { root: scoreEl, starts: clip.t, duration: clip.d, onWord: highlight });
+      } else {
+        speak(item.card.en, { onWord: highlight });
+      }
     }
 
     // Listens only when asked, so the microphone starts once per card unless the learner wants more.
@@ -126,7 +170,7 @@ export function runDrill(done, { extra = 0, next: nextLabel = 'スピーチへ' 
       const l = listen({ silenceMs: 1500 });
       mic = l;
       const r = await l.done;
-      if (finished || !alive || id !== playId) return;
+      if (finished || !alive || id !== playId || screen !== me) return;
       mic = null;
       rep.classList.remove('on');
       rep.textContent = '● 繰り返す';
@@ -149,6 +193,7 @@ export function runDrill(done, { extra = 0, next: nextLabel = 'スピーチへ' 
       Enter: () => commit(sug),
       r: model,
       Space: repeat,
+      ArrowLeft: back,
       ...(rhythm && { b: practiceRhythm }),
     });
     model();

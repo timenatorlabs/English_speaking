@@ -37,8 +37,15 @@ export function setEscape(fn) {
   escape = fn;
 }
 
+let backFn = null;
+const backBtn = document.getElementById('backBtn');
+backBtn.addEventListener('click', () => backFn?.());
+
 // step: null on the home screen, 1 (drill) or 2 (talk) during a session.
-export function chrome({ step = null, info = '', keyHint = '' } = {}) {
+// back: handler of the "previous card" button, or null to hide it.
+export function chrome({ step = null, info = '', keyHint = '', back = null } = {}) {
+  backFn = back;
+  backBtn.hidden = !back;
   bar.hidden = step === null;
   links.hidden = step !== null;
   document.getElementById('where').textContent = step === 1 ? '瞬間ドリル' : step === 2 ? 'スピーチ' : '';

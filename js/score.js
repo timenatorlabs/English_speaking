@@ -1,9 +1,9 @@
 // Shows a stress-annotated sentence as one-line drum notation: each stressed syllable is an
 // accented note on the beat, and the weak syllables are ghost notes squeezed in before the next beat.
-// Tapping it plays a click track so the learner can speak the stresses on the clicks.
+// A playhead follows the model audio or the click track across it.
 
 import { esc } from './ui.js';
-import { audioSession } from './speech.js';
+import { playAudio, stopAudio, wavUrl } from './speech.js';
 
 const LINE = 38;
 const TOP = LINE - 24;
@@ -74,7 +74,15 @@ function group(sylls, { pickup = false, first = false, last = false } = {}) {
   if (tuplet) {
     out += `<text class="tuplet" x="${(stemX(xs[0]) + stemX(xs[n - 1])) / 2}" y="${TOP - 4}">${tuplet}</text>`;
   }
-  return `<svg class="beat" data-width="${width}" width="${width}" height="${H}" viewBox="0 0 ${width} ${H}" aria-hidden="true">${out}</svg>`;
+  const cls = pickup ? 'beat pickup' : 'beat';
+  return `<svg class="${cls}" data-width="${width}" width="${width}" height="${H}" viewBox="0 0 ${width} ${H}" aria-hidden="true">${out}</svg>`;
+}
+
+export function renderScore({ pickup, feet }) {
+  const parts = [];
+  if (pickup.length) parts.push(group(pickup, { pickup: true }));
+  feet.forEach((f, i) => parts.push(group(f, { first: i === 0, last: i === feet.length - 1 })));
+  return `<span class="bars">${parts.join('')}</span><span class="playhead"></span>`;
 }
 
 // Shrinks the score (down to MIN_SCALE) so it fits the width of `root` on one row.
@@ -91,90 +99,141 @@ export function fitScore(root) {
 
 addEventListener('resize', () => fitScore(document.getElementById('score')));
 
-export function renderScore({ pickup, feet }) {
-  const parts = [];
-  if (pickup.length) parts.push(group(pickup, { pickup: true }));
-  feet.forEach((f, i) => parts.push(group(f, { first: i === 0, last: i === feet.length - 1 })));
-  return `<span class="bars">${parts.join('')}</span>`;
-}
-
 // ---------- playhead ----------
 
-// Moves a vertical line to the given note head inside the score, or hides it when head is null.
-// It glides along a row, and jumps without gliding when the score wraps to another row.
-export function movePlayhead(root, head) {
-  if (!root) return;
-  let bar = root.querySelector('.playhead');
-  if (!bar) {
-    bar = document.createElement('span');
-    bar.className = 'playhead';
-    root.append(bar);
-  }
-  if (!head) {
-    bar.classList.remove('on');
-    return;
-  }
+// Positions (relative to root) of the notes, measured once per playback.
+function measure(root) {
   const box = root.getBoundingClientRect();
-  const note = head.getBoundingClientRect();
-  const row = head.closest('svg').getBoundingClientRect();
-  const x = note.left + note.width / 2 - box.left;
-  const y = row.top - box.top;
-  const sameRow = bar.classList.contains('on') && bar.dataset.y === String(y);
-  bar.style.transition = sameRow ? '' : 'none';
-  bar.style.transform = `translate(${x - 1}px, ${y}px)`;
-  bar.style.height = `${row.height}px`;
-  bar.dataset.y = String(y);
-  void bar.offsetWidth;
-  bar.style.transition = '';
+  const at = el => {
+    const r = el.getBoundingClientRect();
+    const row = el.closest('svg').getBoundingClientRect();
+    return { x: r.left + r.width / 2 - box.left, y: row.top - box.top, h: row.height };
+  };
+  const notes = [...root.querySelectorAll('.beat g[data-w]')].map(g => ({ word: Number(g.dataset.w), g, ...at(g.querySelector('.head')) }));
+  const beats = [...root.querySelectorAll('svg.beat')].map(svg => ({ svg, pickup: svg.classList.contains('pickup'), ...at(svg.querySelector('.head')) }));
+  const last = root.querySelectorAll('svg.beat');
+  const end = last.length ? last[last.length - 1].getBoundingClientRect() : box;
+  return { notes, beats, endX: end.right - box.left - 6 };
+}
+
+// Places the playhead between point a and point b at fraction f (no gliding across rows).
+function place(root, a, b, f) {
+  const bar = root.querySelector('.playhead');
+  if (!bar) return;
+  const x = b && b.y === a.y ? a.x + (b.x - a.x) * Math.min(1, Math.max(0, f)) : a.x;
+  bar.style.transform = `translate(${x - 1}px, ${a.y}px)`;
+  bar.style.height = `${a.h}px`;
   bar.classList.add('on');
+}
+
+export function hidePlayhead(root) {
+  root?.querySelector('.playhead')?.classList.remove('on');
+  root?.querySelectorAll('.beat.on').forEach(el => el.classList.remove('on'));
+}
+
+// Drives the word highlight and the playhead from an audio element's clock.
+// starts: start time (s) of each whitespace-separated word; duration: clip length (s).
+export function follow(audio, { root, starts, duration, onWord }) {
+  const m = root ? measure(root) : null;
+  const firstNote = w => m?.notes.find(n => n.word === w);
+  let current = -2;
+  let raf = 0;
+  const tick = () => {
+    const t = audio.currentTime;
+    let i = -1;
+    while (i + 1 < starts.length && starts[i + 1] <= t) i++;
+    if (i !== current) {
+      current = i;
+      onWord(i);
+    }
+    if (m && i >= 0) {
+      const a = firstNote(i);
+      const next = i + 1 < starts.length ? firstNote(i + 1) : { x: m.endX, y: a?.y };
+      const until = i + 1 < starts.length ? starts[i + 1] : duration;
+      if (a) place(root, a, next, (t - starts[i]) / Math.max(0.01, until - starts[i]));
+    }
+    raf = requestAnimationFrame(tick);
+  };
+  raf = requestAnimationFrame(tick);
+  return () => {
+    cancelAnimationFrame(raf);
+    onWord(-1);
+    hidePlayhead(root);
+  };
 }
 
 // ---------- click track ----------
 
-let ac = null;
-let timers = [];
-let sources = [];
+const RATE = 22050;
+const LEAD = 0.15;
+const COUNT_IN = 4;
+
+// The click track is rendered to a WAV and played as an audio file: iOS silences
+// generated (Web Audio) sound in silent mode, but not audio files.
+function clickTrack(nBeats) {
+  const beat = 60 / BPM;
+  const len = Math.ceil((LEAD + (COUNT_IN + nBeats) * beat + 0.3) * RATE);
+  const pcm = new Int16Array(len);
+  const burst = Math.round(0.035 * RATE);
+  for (let b = 0; b < COUNT_IN + nBeats; b++) {
+    const countIn = b < COUNT_IN;
+    const freq = countIn ? 900 : 1600;
+    const gain = countIn ? 0.3 : 0.55;
+    const start = Math.round((LEAD + b * beat) * RATE);
+    for (let i = 0; i < burst && start + i < len; i++) {
+      const t = i / RATE;
+      pcm[start + i] = Math.round(Math.sin(2 * Math.PI * freq * t) * Math.exp(-t * 90) * gain * 32767);
+    }
+  }
+  return wavUrl(pcm, RATE);
+}
+
+let stopFollow = null;
 
 export function stopClick() {
-  timers.forEach(clearTimeout);
-  timers = [];
-  sources.forEach(o => { try { o.stop(); } catch { /* already stopped */ } });
-  sources = [];
-  document.querySelectorAll('.beat.on, .playhead.on').forEach(el => el.classList.remove('on'));
+  const stop = stopFollow;
+  stopFollow = null;
+  stop?.();
 }
 
-function tick(t, freq, gain) {
-  const o = ac.createOscillator();
-  const g = ac.createGain();
-  o.frequency.value = freq;
-  g.gain.setValueAtTime(gain, t);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
-  o.connect(g).connect(ac.destination);
-  o.start(t);
-  o.stop(t + 0.07);
-  sources.push(o);
-}
-
-// Four count-in clicks, then one click per stressed syllable while its beat lights up.
-export function playClick(root, { pickup, feet }) {
+// Four count-in clicks, then one click per stressed syllable while the playhead sweeps the beats.
+export async function playClick(root, { pickup, feet }) {
   stopClick();
-  audioSession('playback');
-  ac ??= new (window.AudioContext || window.webkitAudioContext)();
-  ac.resume();
+  const url = clickTrack(feet.length);
   const beat = 60 / BPM;
-  const lead = 0.15;
-  const t0 = ac.currentTime + lead;
-  for (let i = 0; i < 4 + feet.length; i++) tick(t0 + i * beat, i < 4 ? 900 : 1600, i < 4 ? 0.22 : 0.4);
-
-  const groups = [...root.querySelectorAll('.beat')];
-  const light = (el, at, dur) => {
-    timers.push(setTimeout(() => {
-      el.classList.add('on');
-      movePlayhead(root, el.querySelector('.head'));
-    }, at * 1000));
-    timers.push(setTimeout(() => el.classList.remove('on'), (at + dur) * 1000));
+  const m = measure(root);
+  const beats = m.beats.filter(b => !b.pickup);
+  const pick = m.beats.find(b => b.pickup);
+  let raf = 0;
+  let lit = null;
+  const light = el => {
+    if (el === lit) return;
+    lit?.classList.remove('on');
+    el?.classList.add('on');
+    lit = el;
   };
-  if (pickup.length) light(groups.shift(), lead + 3.5 * beat, beat / 2);
-  groups.forEach((el, i) => light(el, lead + (4 + i) * beat, beat * 0.92));
-  timers.push(setTimeout(() => movePlayhead(root, null), (lead + (4 + groups.length) * beat) * 1000));
+  const audio = playAudio(url, () => stopClick());
+  const tick = () => {
+    const pos = (audio.currentTime - LEAD) / beat;   // in beats; downbeat of the sentence at COUNT_IN
+    const j = Math.floor(pos - COUNT_IN);
+    if (pick && pickup.length && pos >= COUNT_IN - 0.5 && pos < COUNT_IN) {
+      light(pick.svg);
+      place(root, pick, beats[0], (pos - (COUNT_IN - 0.5)) / 0.5);
+    } else if (j >= 0 && j < beats.length) {
+      light(beats[j].svg);
+      place(root, beats[j], beats[j + 1] ?? { x: m.endX, y: beats[j].y }, pos - COUNT_IN - j);
+    } else {
+      light(null);
+      hidePlayhead(root);
+    }
+    raf = requestAnimationFrame(tick);
+  };
+  raf = requestAnimationFrame(tick);
+  stopFollow = () => {
+    cancelAnimationFrame(raf);
+    stopAudio(audio);
+    light(null);
+    hidePlayhead(root);
+    URL.revokeObjectURL(url);
+  };
 }
