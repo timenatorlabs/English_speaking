@@ -55,15 +55,19 @@ header {
   width: 100%;
   max-width: 760px;
   margin: 0 auto;
-  padding: max(20px, env(safe-area-inset-top)) 24px 0;
-  display: flex;
-  justify-content: space-between;
+  padding: calc(env(safe-area-inset-top) + 16px) 16px 0;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
+  gap: 8px;
   font-size: 13px;
+  line-height: 1.4;
   color: var(--faint);
 }
 header[hidden] { display: none; }
-#where { color: var(--ink); font-weight: 500; }
+#homeBtn { justify-self: start; padding: 6px 12px; }
+#where { color: var(--ink); font-weight: 500; white-space: nowrap; }
+#meta { justify-self: end; white-space: nowrap; }
 
 main {
   grid-row: 2;
@@ -74,8 +78,9 @@ main {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
 }
+/* Auto margins center the screen vertically but never push its top off-screen when it is tall. */
+main > * { margin-block: auto; }
 main.enter > * { animation: enter .22s ease-out; }
 @keyframes enter { from { opacity: 0; transform: translateY(6px); } }
 @media (prefers-reduced-motion: reduce) { main.enter > * { animation: none; } }
@@ -349,6 +354,19 @@ kbd {
   background: none;
 }
 .score:hover { background: var(--accent-soft); }
+.score { position: relative; }
+.playhead {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform .2s linear, opacity .15s;
+}
+.playhead.on { opacity: .8; }
 .bars { display: flex; flex-wrap: wrap; justify-content: flex-start; row-gap: 4px; max-width: 100%; }
 .beat { display: block; overflow: visible; }
 .beat .staff { stroke: var(--line); stroke-width: 1; }
@@ -477,7 +495,6 @@ select {
 /* ---------- narrow screens ---------- */
 
 @media (max-width: 520px) {
-  header { padding: max(16px, env(safe-area-inset-top)) 16px 0; }
   main { padding: 20px 16px; }
   .plan { gap: 28px; }
   .grades { flex-wrap: nowrap; gap: 8px; width: 100%; }

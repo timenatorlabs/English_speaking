@@ -1,7 +1,7 @@
 // Step 2: 4/3/2 — tell the same story three times under shrinking time limits.
 
 import { view, keys, chrome, onLeave, esc, micError } from './ui.js';
-import { listen, startRecording, countWords, isIOS } from './speech.js';
+import { listen, startRecording, countWords, isIOS, audioSession } from './speech.js';
 import { state, save, day } from './store.js';
 import { addCustomCards } from './srs.js';
 import { TOPICS } from '../data/topics.js';
@@ -175,6 +175,7 @@ export function runTalk(done) {
     const play = document.getElementById('play');
     if (play) {
       player = new Audio(audioUrl);
+      player.onplay = () => audioSession('playback');
       player.onended = () => (play.textContent = '▶ 自分の声を聞く');
       play.onclick = () => {
         if (player.paused) {

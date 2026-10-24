@@ -5,12 +5,21 @@ export const canListen = !!SR;
 export const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent)
   || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
+// iOS (Safari 16.4+) mutes page audio with the ring/silent switch unless the session is "playback".
+// Playback is requested while the app makes sound, and handed back to the browser before listening.
+export function audioSession(type) {
+  try {
+    if (navigator.audioSession) navigator.audioSession.type = type;
+  } catch { /* unsupported: the silent switch applies */ }
+}
+
 const FATAL = new Set(['not-allowed', 'service-not-allowed', 'audio-capture', 'network']);
 
 // Listens until stop() is called, or until `silenceMs` passes without new speech.
 // Chrome ends recognition on its own after pauses, so it is restarted while active.
 // done resolves to { text, firstSoundAt, error }.
 export function listen({ silenceMs = 0, onUpdate } = {}) {
+  audioSession('auto');
   const rec = new SR();
   rec.lang = 'en-US';
   rec.continuous = true;
@@ -120,6 +129,7 @@ if ('speechSynthesis' in window) {
 export function speak(text, { rate = 0.95, onWord } = {}) {
   return new Promise(resolve => {
     if (!('speechSynthesis' in window)) return resolve();
+    audioSession('playback');
     speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.lang = 'en-US';

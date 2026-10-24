@@ -82,6 +82,8 @@ document.addEventListener('keydown', e => {
   }
 });
 
+document.getElementById('homeBtn').addEventListener('click', () => escape?.());
+
 // Buttons carry data-key so a click and its keyboard shortcut run the same handler.
 stage.addEventListener('click', e => {
   const el = e.target.closest('[data-key]');

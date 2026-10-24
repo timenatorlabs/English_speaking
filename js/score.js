@@ -3,6 +3,7 @@
 // Tapping it plays a click track so the learner can speak the stresses on the clicks.
 
 import { esc } from './ui.js';
+import { audioSession } from './speech.js';
 
 const LINE = 38;
 const TOP = LINE - 24;
@@ -79,6 +80,37 @@ export function renderScore({ pickup, feet }) {
   return `<span class="bars">${parts.join('')}</span>`;
 }
 
+// ---------- playhead ----------
+
+// Moves a vertical line to the given note head inside the score, or hides it when head is null.
+// It glides along a row, and jumps without gliding when the score wraps to another row.
+export function movePlayhead(root, head) {
+  if (!root) return;
+  let bar = root.querySelector('.playhead');
+  if (!bar) {
+    bar = document.createElement('span');
+    bar.className = 'playhead';
+    root.append(bar);
+  }
+  if (!head) {
+    bar.classList.remove('on');
+    return;
+  }
+  const box = root.getBoundingClientRect();
+  const note = head.getBoundingClientRect();
+  const row = head.closest('svg').getBoundingClientRect();
+  const x = note.left + note.width / 2 - box.left;
+  const y = row.top - box.top;
+  const sameRow = bar.classList.contains('on') && bar.dataset.y === String(y);
+  bar.style.transition = sameRow ? '' : 'none';
+  bar.style.transform = `translate(${x - 1}px, ${y}px)`;
+  bar.style.height = `${row.height}px`;
+  bar.dataset.y = String(y);
+  void bar.offsetWidth;
+  bar.style.transition = '';
+  bar.classList.add('on');
+}
+
 // ---------- click track ----------
 
 let ac = null;
@@ -90,7 +122,7 @@ export function stopClick() {
   timers = [];
   sources.forEach(o => { try { o.stop(); } catch { /* already stopped */ } });
   sources = [];
-  document.querySelectorAll('.beat.on').forEach(el => el.classList.remove('on'));
+  document.querySelectorAll('.beat.on, .playhead.on').forEach(el => el.classList.remove('on'));
 }
 
 function tick(t, freq, gain) {
@@ -108,6 +140,7 @@ function tick(t, freq, gain) {
 // Four count-in clicks, then one click per stressed syllable while its beat lights up.
 export function playClick(root, { pickup, feet }) {
   stopClick();
+  audioSession('playback');
   ac ??= new (window.AudioContext || window.webkitAudioContext)();
   ac.resume();
   const beat = 60 / BPM;
@@ -117,9 +150,13 @@ export function playClick(root, { pickup, feet }) {
 
   const groups = [...root.querySelectorAll('.beat')];
   const light = (el, at, dur) => {
-    timers.push(setTimeout(() => el.classList.add('on'), at * 1000));
+    timers.push(setTimeout(() => {
+      el.classList.add('on');
+      movePlayhead(root, el.querySelector('.head'));
+    }, at * 1000));
     timers.push(setTimeout(() => el.classList.remove('on'), (at + dur) * 1000));
   };
   if (pickup.length) light(groups.shift(), lead + 3.5 * beat, beat / 2);
   groups.forEach((el, i) => light(el, lead + (4 + i) * beat, beat * 0.92));
+  timers.push(setTimeout(() => movePlayhead(root, null), (lead + (4 + groups.length) * beat) * 1000));
 }
