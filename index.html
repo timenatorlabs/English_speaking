@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#141413" media="(prefers-color-scheme: dark)">
+  <title>Speak</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Noto+Sans+JP:wght@400;500;700&display=swap">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header id="bar" hidden>
+    <div class="steps"><span id="s1">1 ドリル</span><span id="s2">2 スピーチ</span></div>
+    <span id="meta" class="num"></span>
+  </header>
+
+  <main id="stage" aria-live="polite"></main>
+
+  <footer>
+    <p id="hint"></p>
+    <nav id="links"><button class="link" id="openSettings" type="button">設定</button></nav>
+  </footer>
+
+  <dialog id="settings">
+    <form method="dialog">
+      <h2>設定</h2>
+      <label class="field">
+        <span>1日の新しいカード</span>
+        <select id="newPerDay">
+          <option value="5">5枚</option>
+          <option value="10">10枚</option>
+          <option value="15">15枚</option>
+          <option value="20">20枚</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>スピーチの時間</span>
+        <select id="talkLen">
+          <option value="full">4分 → 3分 → 2分</option>
+          <option value="short">2分 → 1.5分 → 1分</option>
+        </select>
+      </label>
+
+      <h3>バックアップ</h3>
+      <p class="help">学習記録はこのブラウザの中だけに保存されています。ときどき書き出しておくと安心です。</p>
+      <div class="row">
+        <button class="ghost" type="button" id="exportBtn">書き出す</button>
+        <button class="ghost" type="button" id="importBtn">読み込む</button>
+        <input type="file" id="importFile" accept="application/json,.json" hidden>
+      </div>
+
+      <div class="row end">
+        <button class="primary sm" value="close">閉じる</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
