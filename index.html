@@ -58,6 +58,15 @@
     </form>
   </dialog>
 
+  <script>
+    // If the app fails to start, say so instead of leaving a blank page.
+    addEventListener('error', e => {
+      const stage = document.getElementById('stage');
+      if (stage.childElementCount) return;
+      stage.innerHTML = '<div class="home"><p class="lead">読み込みに失敗しました。ページを再読み込みしてください。</p><p class="notice"></p></div>';
+      stage.querySelector('.notice').textContent = e.message || String(e.error || '');
+    }, true);
+  </script>
   <script type="module" src="js/app.js"></script>
 </body>
 </html>

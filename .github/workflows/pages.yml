@@ -23,6 +23,13 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      # Browsers cache each file separately; a new index.html with an old module breaks the page.
+      # Stamping every URL with the commit makes each deploy load as one consistent set.
+      - name: Version asset URLs
+        run: |
+          V=${GITHUB_SHA::7}
+          sed -i -E "s#(from '\.{1,2}/[^']+\.js)'#\1?v=$V'#g" js/*.js
+          sed -i -E "s#(src=\"js/app\.js)\"#\1?v=$V\"#; s#(href=\"css/style\.css)\"#\1?v=$V\"#" index.html
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
