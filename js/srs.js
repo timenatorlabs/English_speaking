@@ -30,9 +30,16 @@ export function buildQueue() {
   return [...due, ...fresh];
 }
 
-export function grade(card, g) {
+// rt: milliseconds until the learner started speaking, or null if they never did.
+export function grade(card, g, rt = null) {
   const t = today();
   const d = day(t);
+  d.n = (d.n ?? 0) + 1;
+  if (g === 3) d.quick = (d.quick ?? 0) + 1;
+  if (rt !== null) {
+    d.rtSum = (d.rtSum ?? 0) + rt;
+    d.rtN = (d.rtN ?? 0) + 1;
+  }
   let r = state.cards[card.id];
   const isNew = !r;
   if (isNew) {
@@ -55,6 +62,16 @@ export function grade(card, g) {
   state.cards[card.id] = r;
   d.drill++;
   save();
+}
+
+// Cards the learner keeps failing or hesitating on, worst first.
+export function weakCards(limit = 8) {
+  const byId = new Map(allCards().map(c => [c.id, c]));
+  return Object.entries(state.cards)
+    .filter(([id, r]) => byId.has(id) && (r.lapses > 0 || r.ease < 2.3))
+    .sort(([, a], [, b]) => b.lapses - a.lapses || a.ease - b.ease)
+    .slice(0, limit)
+    .map(([id]) => byId.get(id));
 }
 
 // Accepts lines like "日本語 | English" (also "｜"), as returned by the feedback prompt.

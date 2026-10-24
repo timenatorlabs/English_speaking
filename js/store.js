@@ -7,7 +7,7 @@ const defaults = () => ({
   cards: {},      // card id -> { ease, ivl, due, reps, lapses }
   custom: [],     // cards the learner added: { id, ja, en }
   settings: { newPerDay: 10, talk: 'full' },
-  days: {},       // 'YYYY-MM-DD' -> { drill, fresh, wpm: [r1, r2, r3] }
+  days: {},       // 'YYYY-MM-DD' -> { drill, fresh, n, quick, rtSum, rtN, wpm: [r1, r2, r3] }
   topicIndex: 0,
   notice: false,
 });
@@ -68,6 +68,13 @@ export function previousWpm(ymd = today()) {
   const past = Object.keys(state.days).filter(k => k < ymd && state.days[k].wpm?.length).sort();
   const last = past.at(-1);
   return last ? state.days[last].wpm.at(-1) : null;
+}
+
+// Average reaction time (seconds) on the most recent day before `ymd`.
+export function previousReaction(ymd = today()) {
+  const past = Object.keys(state.days).filter(k => k < ymd && state.days[k].rtN).sort();
+  const d = state.days[past.at(-1)];
+  return d ? d.rtSum / d.rtN / 1000 : null;
 }
 
 export function exportData() {

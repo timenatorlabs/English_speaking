@@ -1,8 +1,10 @@
-// Step 1: see Japanese, say it in English at once, check, hear the model, repeat it, grade.
+// Step 1: see Japanese, say it in English at once, check, hear the model, grade.
+// The session ends with a short review of how it went.
 
 import { view, keys, chrome, onLeave, esc, micError } from './ui.js';
 import { listen, speak, stopSpeaking } from './speech.js';
 import { buildQueue, grade } from './srs.js';
+import { previousReaction } from './store.js';
 import { parseRhythm, renderScore, playClick, stopClick, BPM } from './score.js';
 
 const LABELS = { 1: '言えなかった', 2: '詰まった', 3: 'すぐ言えた' };
@@ -11,6 +13,7 @@ export function runDrill(done) {
   const items = buildQueue().map(card => ({ card, retry: false }));
   if (!items.length) return done();
 
+  const results = [];   // first attempt of each card: { card, g, rt, said, score }
   let alive = true;
   let mic = null;
   const remaining = () => `残り ${items.length + 1}`;
@@ -24,10 +27,7 @@ export function runDrill(done) {
 
   function next() {
     const item = items.shift();
-    if (!item) {
-      onLeave(null);
-      return done();
-    }
+    if (!item) return summary();
     ask(item);
   }
 
@@ -57,80 +57,146 @@ export function runDrill(done) {
     const c = compare(item.card.en, said);
     const sug = suggest(c.score, rt, said);
     const rhythm = item.card.rhythm ? parseRhythm(item.card.rhythm) : null;
-    chrome({ step: 1, info: remaining(), keyHint: '1 2 3 評価 · Enter 決定 · R もう一度聞く · B リズム' });
+    chrome({ step: 1, info: remaining(), keyHint: '1 2 3 評価 · Enter 決定 · R お手本 · Space 繰り返す · B リズム' });
     view(`<div class="drill">
       <p class="ja-sub">${esc(item.card.ja)}</p>
       <p class="en-model">${c.modelHtml}</p>
       ${rhythm ? `<button class="score" id="score" type="button">${renderScore(rhythm)}<span class="score-cap num">♩ = ${BPM} · タップでクリックに合わせて言う</span></button>` : ''}
-      <p class="said">${said ? c.saidHtml : '<span class="faint">—</span>'}</p>
-      <p class="meta-line"><span class="num">${rt === null ? '' : `反応 ${(rt / 1000).toFixed(1)}秒`}</span><button class="link rep" id="rep" data-key="r" type="button"></button></p>
+      <p class="said"><span class="tag">あなた</span>${said ? c.saidHtml : '<span class="faint">聞き取れませんでした</span>'}</p>
+      <p class="said" id="repSaid" hidden></p>
+      <p class="meta-line">
+        <span class="num">${rt === null ? '' : `反応 ${(rt / 1000).toFixed(1)}秒`}</span>
+        <button class="link act" data-key="r" type="button">▶ お手本</button>
+        <button class="link act" id="rep" data-key="Space" type="button">● 繰り返す</button>
+      </p>
       <div class="grades">
         ${[1, 2, 3].map(g => `<button class="grade${g === sug ? ' is-sug' : ''}" data-key="${g}"><kbd>${g}</kbd>${LABELS[g]}</button>`).join('')}
       </div>
     </div>`);
 
     let finished = false;
-    let echoId = 0;
+    let playId = 0;
     const rep = document.getElementById('rep');
+    const repSaid = document.getElementById('repSaid');
+    const words = [...document.querySelectorAll('.drill [data-w]')];
+    const highlight = i => words.forEach(el => el.classList.toggle('speaking', Number(el.dataset.w) === i));
 
-    const commit = g => {
-      if (finished) return;
-      finished = true;
+    const quiet = () => {
+      playId++;
       mic?.stop();
       mic = null;
       stopSpeaking();
       stopClick();
+      highlight(-1);
+      rep.classList.remove('on');
+      rep.textContent = '● 繰り返す';
+    };
+
+    const commit = g => {
+      if (finished) return;
+      finished = true;
+      quiet();
       if (!item.retry) {
-        grade(item.card, g);
+        grade(item.card, g, rt);
+        results.push({ card: item.card, g, rt, said, score: c.score });
         if (g === 1) items.push({ card: item.card, retry: true });
       }
       next();
     };
 
-    // Stops any repeat listening, so the clicks are not transcribed.
-    function practiceRhythm() {
-      echoId++;
-      mic?.stop();
-      mic = null;
-      stopSpeaking();
-      rep.className = 'link rep';
-      rep.textContent = '▶ もう一度聞く';
-      playClick(document.getElementById('score'), rhythm);
+    function model() {
+      quiet();
+      speak(item.card.en, { onWord: highlight });
     }
-    document.getElementById('score')?.addEventListener('click', practiceRhythm);
 
-    // Play the model, then listen once while the learner repeats it.
-    async function echo() {
-      const id = ++echoId;
-      mic?.stop();
-      mic = null;
-      stopClick();
-      rep.className = 'link rep';
-      rep.textContent = '♪ お手本';
-      await speak(item.card.en);
-      if (finished || !alive || id !== echoId) return;
-      rep.className = 'link rep on';
-      rep.textContent = '● 繰り返す';
+    // Listens only when asked, so the microphone starts once per card unless the learner wants more.
+    async function repeat() {
+      if (mic) return mic.stop();
+      quiet();
+      const id = playId;
+      rep.classList.add('on');
+      rep.textContent = '● 聞き取り中';
       const l = listen({ silenceMs: 1500 });
       mic = l;
       const r = await l.done;
-      if (finished || !alive || id !== echoId) return;
+      if (finished || !alive || id !== playId) return;
       mic = null;
-      const ok = r.text && compare(item.card.en, r.text).score >= 0.8;
-      rep.className = ok ? 'link rep ok' : 'link rep';
-      rep.textContent = ok ? '✓ 繰り返し · もう一度聞く' : '▶ もう一度聞く';
+      rep.classList.remove('on');
+      rep.textContent = '● 繰り返す';
+      if (r.error && !r.text) return;
+      const again = compare(item.card.en, r.text);
+      repSaid.hidden = false;
+      repSaid.innerHTML = `<span class="tag">${again.score >= 0.8 ? '✓ ' : ''}繰り返し</span>${r.text ? again.saidHtml : '<span class="faint">聞き取れませんでした</span>'}`;
     }
+
+    function practiceRhythm() {
+      quiet();
+      playClick(document.getElementById('score'), rhythm);
+    }
+    document.getElementById('score')?.addEventListener('click', practiceRhythm);
 
     keys({
       1: () => commit(1),
       2: () => commit(2),
       3: () => commit(3),
       Enter: () => commit(sug),
-      r: echo,
+      r: model,
+      Space: repeat,
       ...(rhythm && { b: practiceRhythm }),
     });
-    echo();
+    model();
   }
+
+  function summary() {
+    onLeave(null);
+    if (!results.length) return done();
+    const n = results.length;
+    const quick = results.filter(r => r.g === 3).length;
+    const rts = results.filter(r => r.rt !== null).map(r => r.rt / 1000);
+    const avg = rts.length ? rts.reduce((a, b) => a + b, 0) / rts.length : null;
+    const prev = previousReaction();
+    const weak = results.filter(r => r.g < 3);
+    const alt = results.filter(r => r.said && r.score < 0.85);
+
+    chrome({ step: 1, info: '振り返り', keyHint: 'Enter スピーチへ' });
+    view(`<div class="drill summary">
+      <p class="eyebrow">ドリルの振り返り</p>
+      <div class="plan">
+        <div><span class="big num">${quick}<span class="of">/${n}</span></span><span>すぐ言えた</span></div>
+        <div><span class="big num">${avg === null ? '—' : avg.toFixed(1)}</span><span>平均反応(秒)${prev === null ? '' : ` · 前回 ${prev.toFixed(1)}`}</span></div>
+      </div>
+      ${weak.length ? `<ul class="cardlist">${weak.map(r => `<li><span class="ja">${esc(r.card.ja)}</span><span class="en">${esc(r.card.en)}</span></li>`).join('')}</ul>` : ''}
+      ${alt.length ? `<button class="ghost" id="alt" type="button">別の言い方をAIで確認(${alt.length}件)</button>
+        <p class="help">お手本と違う言い方をした文をまとめてコピーします。無料版の ChatGPT・Claude・Gemini に貼ると、その言い方で通じるかを判定してもらえます。</p>` : ''}
+      <button class="primary" data-key="Enter">スピーチへ</button>
+    </div>`);
+
+    const btn = document.getElementById('alt');
+    if (btn) {
+      btn.onclick = async () => {
+        try {
+          await navigator.clipboard.writeText(altPrompt(alt));
+          btn.textContent = 'コピーしました';
+        } catch {
+          btn.textContent = 'コピーできませんでした';
+        }
+      };
+    }
+    keys({ Enter: done });
+  }
+}
+
+function altPrompt(rows) {
+  const list = rows.map((r, i) => `${i + 1}. 日本語: ${r.card.ja}\n   お手本: ${r.card.en}\n   私: ${r.said}`).join('\n');
+  return `あなたは英語スピーキングのコーチです。以下は、英語中級の私が日本語を見てすぐに英語で言った答えを、音声認識で文字にしたものです（句読点はなく、誤認識を含むことがあります）。
+
+それぞれについて、次の形で日本語で簡潔に答えてください。
+- 判定: ○（自然で意味も同じ）/ △（通じるが不自然）/ ×（意味が違う・文法の誤り）
+- △と×の場合は、直し方を一言
+
+最後に、私がくり返している間違いの傾向があれば、1〜2行でまとめてください。
+
+${list}`;
 }
 
 function suggest(score, rt, said) {
@@ -206,6 +272,7 @@ function lcs(a, b) {
 }
 
 // Marks model words the learner missed and spoken words that are not in the model.
+// Model words carry data-w (their index) so speech playback can highlight them.
 export function compare(model, said) {
   const mt = tokenize(model);
   const st = tokenize(said || '');
@@ -218,7 +285,7 @@ export function compare(model, said) {
   const matched = new Set();
   sf.owner.forEach((o, k) => { if (mb.has(k)) matched.add(o); });
 
-  const modelHtml = mt.map((t, i) => (missed.has(i) ? `<mark class="miss">${esc(t.disp)}</mark>` : esc(t.disp))).join(' ');
+  const modelHtml = mt.map((t, i) => `<span class="w" data-w="${i}">${missed.has(i) ? `<mark class="miss">${esc(t.disp)}</mark>` : esc(t.disp)}</span>`).join(' ');
   const saidHtml = st.map((t, i) => (matched.has(i) || !t.norms.length ? esc(t.disp) : `<span class="extra">${esc(t.disp)}</span>`)).join(' ');
   const score = mf.words.length ? ma.size / mf.words.length : 0;
   return { modelHtml, saidHtml, score };

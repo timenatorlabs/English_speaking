@@ -228,7 +228,67 @@ kbd {
   text-decoration-thickness: 2px;
   text-underline-offset: 6px;
 }
-.said { margin: 0 0 6px; font-size: 16px; color: var(--muted); }
+.said { margin: 0 0 6px; font-size: 16px; color: var(--ink); }
+.said[hidden] { display: none; }
+.tag {
+  display: inline-block;
+  margin-right: 10px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  letter-spacing: .06em;
+  vertical-align: 2px;
+}
+.act { font-size: 13px; color: var(--muted); padding: 6px 4px; }
+.act.on { color: var(--accent); }
+
+/* drill review & records */
+.summary .plan, .stats .plan { margin-bottom: 28px; }
+.of { font-size: 18px; color: var(--muted); margin-left: 2px; }
+.cardlist {
+  list-style: none;
+  margin: 0 0 22px;
+  padding: 0;
+  width: 100%;
+  max-width: 560px;
+  text-align: left;
+}
+.cardlist li { display: flex; flex-direction: column; gap: 2px; padding: 10px 2px; border-bottom: 1px solid var(--line); }
+.cardlist .ja { font-size: 13px; color: var(--muted); }
+.cardlist .en { font-size: 15px; }
+.summary .help { margin-top: 8px; }
+.summary { display: flex; flex-direction: column; align-items: center; }
+
+.stats { width: 100%; max-width: 560px; display: flex; flex-direction: column; align-items: center; }
+.section { align-self: flex-start; margin: 10px 0 4px; font-size: 13px; font-weight: 500; }
+.chart { width: 100%; margin: 0 0 22px; }
+.chart-h { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+.chart-t { font-size: 14px; font-weight: 500; margin-right: 10px; }
+.chart-n { font-size: 11px; color: var(--faint); }
+.chart-v { font-size: 22px; font-weight: 300; }
+.chart-v small { font-size: 11px; color: var(--muted); margin-left: 4px; }
+.chart-body { position: relative; width: 100%; }
+.chart-body svg { display: block; }
+.chart-empty { margin: 0; padding: 18px 0; font-size: 12px; color: var(--faint); border-top: 1px solid var(--line); }
+.chart .grid { stroke: var(--line); stroke-width: 1; }
+.chart .axis { font: 10px var(--font); fill: var(--faint); }
+.chart .line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart .end { fill: var(--accent); stroke: var(--bg); stroke-width: 2; }
+.chart .cross { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 2 3; }
+.chart .hit { fill: transparent; touch-action: pan-y; }
+.tip {
+  position: absolute;
+  transform: translateX(-50%);
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--ink);
+  color: var(--bg);
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+}
 .extra { color: var(--faint); text-decoration: line-through; text-decoration-color: var(--faint); }
 .meta-line {
   margin: 0 0 36px;
@@ -240,13 +300,13 @@ kbd {
   min-height: 1.6em;
 }
 .check { margin-top: 36px; }
-.rep { font-size: 13px; padding: 0; min-height: 1.6em; }
-.rep.on { color: var(--accent); }
-.rep.ok { color: var(--muted); }
 
 /* rhythm notation */
+/* The notation block is centered as a whole; when it wraps, lines stay left-aligned. */
 .score {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   width: 100%;
   margin: 0 0 18px;
   padding: 6px 0;
@@ -255,7 +315,7 @@ kbd {
   background: none;
 }
 .score:hover { background: var(--accent-soft); }
-.bars { display: flex; flex-wrap: wrap; justify-content: center; row-gap: 4px; }
+.bars { display: flex; flex-wrap: wrap; justify-content: flex-start; row-gap: 4px; max-width: 100%; }
 .beat { display: block; overflow: visible; }
 .beat .staff { stroke: var(--line); stroke-width: 1; }
 .beat .bar { stroke: var(--faint); stroke-width: 1; }
@@ -271,6 +331,13 @@ kbd {
 .beat.on .head, .beat.on .beam, .beat.on .lyric { fill: var(--accent); }
 .beat.on .stem, .beat.on .mark, .beat.on .flag { stroke: var(--accent); }
 .score-cap { display: block; margin-top: 2px; font-size: 11px; color: var(--faint); }
+
+/* the word being read aloud */
+.w { transition: color .12s; }
+.w.speaking, .w.speaking .miss { color: var(--accent); }
+.beat g.speaking .head { fill: var(--accent); }
+.beat g.speaking .stem, .beat g.speaking .mark { stroke: var(--accent); }
+.beat g.speaking .lyric { fill: var(--accent); font-weight: 600; }
 
 .grades { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 .grade {

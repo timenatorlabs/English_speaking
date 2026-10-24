@@ -115,7 +115,9 @@ if ('speechSynthesis' in window) {
   speechSynthesis.addEventListener('voiceschanged', pickVoice);
 }
 
-export function speak(text, rate = 0.95) {
+// onWord(i) is called with the index of the word being spoken (whitespace-separated), and -1 at the end.
+// Voices that report no word boundaries (e.g. Chrome's network voices) get an estimate from syllable counts.
+export function speak(text, { rate = 0.95, onWord } = {}) {
   return new Promise(resolve => {
     if (!('speechSynthesis' in window)) return resolve();
     speechSynthesis.cancel();
@@ -123,12 +125,49 @@ export function speak(text, rate = 0.95) {
     u.lang = 'en-US';
     if (voice) u.voice = voice;
     u.rate = rate;
+
+    const words = text.split(/\s+/).filter(Boolean);
+    const starts = [];
+    text.replace(/\S+/g, (m, i) => starts.push(i));
+    const wordAt = ci => {
+      let w = 0;
+      while (w + 1 < starts.length && starts[w + 1] <= ci) w++;
+      return w;
+    };
+    let gotBoundary = false;
+    let guesses = [];
+    const clearGuesses = () => {
+      guesses.forEach(clearTimeout);
+      guesses = [];
+    };
+    const estimate = () => {
+      const perSyllable = 230 / rate;
+      let at = 0;
+      words.forEach((w, i) => {
+        guesses.push(setTimeout(() => onWord(i), Math.max(0, at - 350)));
+        at += Math.max(1, (w.toLowerCase().match(/[aeiouy]+/g) || []).length) * perSyllable;
+      });
+    };
+    if (onWord) {
+      u.onboundary = e => {
+        if (e.name && e.name !== 'word') return;
+        gotBoundary = true;
+        clearGuesses();
+        onWord(wordAt(e.charIndex));
+      };
+      u.onstart = () => guesses.push(setTimeout(() => { if (!gotBoundary) estimate(); }, 350));
+    }
+
     // onend is occasionally never fired in Chrome, so cap the wait.
-    const cap = setTimeout(resolve, 2500 + countWords(text) * 600);
-    u.onend = u.onerror = () => {
+    let cap;
+    const end = () => {
       clearTimeout(cap);
+      clearGuesses();
+      onWord?.(-1);
       resolve();
     };
+    cap = setTimeout(end, 2500 + words.length * 600);
+    u.onend = u.onerror = end;
     speechSynthesis.speak(u);
   });
 }

@@ -6,6 +6,7 @@ import { counts } from './srs.js';
 import { canListen, unlockSpeech } from './speech.js';
 import { runDrill } from './drill.js';
 import { runTalk } from './talk.js';
+import { showStats } from './stats.js';
 
 function home() {
   leave();
@@ -61,6 +62,12 @@ function complete() {
   </div>`);
   keys({ Enter: home });
 }
+
+document.getElementById('openStats').onclick = () => {
+  leave();
+  setEscape(home);
+  showStats(home);
+};
 
 // ---------- settings & backup ----------
 

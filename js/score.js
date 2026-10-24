@@ -12,11 +12,11 @@ export const BPM = 90;
 export function parseRhythm(src) {
   const pickup = [];
   const feet = [];
-  for (const token of src.split(/\s+/).filter(Boolean)) {
+  for (const [word, token] of src.split(/\s+/).filter(Boolean).entries()) {
     for (const part of token.split(/[·-]/)) {
       const text = part.replace(/[^A-Za-z']/g, '');
       if (!text) continue;
-      const s = { text, stressed: part.includes('*') };
+      const s = { text, word, stressed: part.includes('*') };
       if (s.stressed) feet.push([s]);
       else if (feet.length) feet.at(-1).push(s);
       else pickup.push(s);
@@ -50,7 +50,7 @@ function group(sylls, { pickup = false, first = false, last = false } = {}) {
   }
   sylls.forEach((s, i) => {
     const cx = xs[i];
-    out += `<g class="${s.stressed ? 'acc' : 'ghost'}">`;
+    out += `<g class="${s.stressed ? 'acc' : 'ghost'}" data-w="${s.word}">`;
     out += `<ellipse class="head" cx="${cx}" cy="${LINE}" rx="5.4" ry="3.9" transform="rotate(-20 ${cx} ${LINE})"/>`;
     out += `<line class="stem" x1="${stemX(cx)}" y1="${LINE - 1}" x2="${stemX(cx)}" y2="${TOP}"/>`;
     out += s.stressed
