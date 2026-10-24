@@ -46,7 +46,7 @@ export function runTalk(done) {
       <p class="rule">同じ内容を ${plan.map(fmtMin).join(' → ')} で3回話します。メモは取らず、頭の中で話の流れだけ決めてください。</p>
       <p class="countdown num" id="cd">${fmt(PREP_SECONDS)}</p>
       <button class="primary" data-key="Space">話し始める</button>
-      <button class="link" data-key="n">別のお題</button>
+      <button class="pill" data-key="n" type="button">別のお題にする</button>
     </div>`);
     const cd = document.getElementById('cd');
     const begin = () => {

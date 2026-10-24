@@ -63,10 +63,7 @@ header {
   color: var(--faint);
 }
 header[hidden] { display: none; }
-.steps { display: flex; gap: 20px; }
-.steps span { transition: color .2s; }
-.steps .is-active { color: var(--ink); font-weight: 500; }
-.steps .is-done { color: var(--muted); }
+#where { color: var(--ink); font-weight: 500; }
 
 main {
   grid-row: 2;
@@ -125,14 +122,20 @@ button { font: inherit; color: inherit; cursor: pointer; -webkit-tap-highlight-c
 }
 .ghost:hover { border-color: var(--muted); }
 
-.link {
-  border: 0;
-  background: none;
-  padding: 6px 8px;
-  font-size: 12px;
-  color: var(--faint);
+/* Small secondary action: always shaped like a button so it reads as tappable. */
+.pill {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 7px 14px;
+  background: var(--surface);
+  font-size: 13px;
+  color: var(--ink);
+  transition: border-color .15s, color .15s;
 }
-.link:hover { color: var(--ink); }
+.pill:hover { border-color: var(--muted); }
+.pill.on { border-color: var(--accent); color: var(--accent); }
+#links { display: flex; gap: 8px; justify-content: center; margin-top: 10px; }
+.tools { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin: 0 0 30px; }
 
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
@@ -180,7 +183,40 @@ kbd {
 
 /* ---------- home ---------- */
 
-.home { text-align: center; }
+.home { text-align: center; width: 100%; display: flex; flex-direction: column; align-items: center; }
+.menu { width: 100%; max-width: 460px; display: flex; flex-direction: column; gap: 10px; margin: 0 0 30px; }
+.row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  text-align: left;
+  transition: border-color .15s;
+}
+.row:hover { border-color: var(--muted); }
+.row-no {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+.row-body { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.row-title { font-size: 16px; font-weight: 500; }
+.row-desc { font-size: 12px; color: var(--muted); }
+.row-state { flex: none; display: flex; flex-direction: column; align-items: flex-end; font-size: 15px; font-weight: 500; }
+.row-state small { font-size: 11px; font-weight: 400; color: var(--faint); }
+.row.is-done .row-no { background: var(--line); color: var(--muted); }
+.row.is-done .row-state { color: var(--muted); }
 .plan {
   display: flex;
   justify-content: center;
@@ -241,8 +277,6 @@ kbd {
   letter-spacing: .06em;
   vertical-align: 2px;
 }
-.act { font-size: 13px; color: var(--muted); padding: 6px 4px; }
-.act.on { color: var(--accent); }
 
 /* drill review & records */
 .summary .plan, .stats .plan { margin-bottom: 28px; }
@@ -291,7 +325,7 @@ kbd {
 }
 .extra { color: var(--faint); text-decoration: line-through; text-decoration-color: var(--faint); }
 .meta-line {
-  margin: 0 0 36px;
+  margin: 0 0 14px;
   font-size: 13px;
   color: var(--faint);
   display: flex;
@@ -330,7 +364,6 @@ kbd {
 .beat .tuplet { font: 500 10px var(--font); fill: var(--muted); text-anchor: middle; }
 .beat.on .head, .beat.on .beam, .beat.on .lyric { fill: var(--accent); }
 .beat.on .stem, .beat.on .mark, .beat.on .flag { stroke: var(--accent); }
-.score-cap { display: block; margin-top: 2px; font-size: 11px; color: var(--faint); }
 
 /* the word being read aloud */
 .w { transition: color .12s; }
@@ -457,6 +490,7 @@ select {
 @media (hover: none) and (pointer: coarse) {
   #hint, kbd { display: none; }
   .ghost, .grade { min-height: 46px; }
+  .pill { min-height: 40px; }
   .score:hover { background: none; }
   .ghost:hover, .grade:hover { border-color: var(--line); }
   .grade.is-sug:hover { border-color: var(--accent); }

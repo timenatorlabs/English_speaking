@@ -9,8 +9,9 @@ import { parseRhythm, renderScore, playClick, stopClick, BPM } from './score.js'
 
 const LABELS = { 1: '言えなかった', 2: '詰まった', 3: 'すぐ言えた' };
 
-export function runDrill(done) {
-  const items = buildQueue().map(card => ({ card, retry: false }));
+// next: label of the button that leaves the review screen.
+export function runDrill(done, { extra = 0, next: nextLabel = 'スピーチへ' } = {}) {
+  const items = buildQueue(extra).map(card => ({ card, retry: false }));
   if (!items.length) return done();
 
   const results = [];   // first attempt of each card: { card, g, rt, said, score }
@@ -61,14 +62,15 @@ export function runDrill(done) {
     view(`<div class="drill">
       <p class="ja-sub">${esc(item.card.ja)}</p>
       <p class="en-model">${c.modelHtml}</p>
-      ${rhythm ? `<button class="score" id="score" type="button">${renderScore(rhythm)}<span class="score-cap num">♩ = ${BPM} · タップでクリックに合わせて言う</span></button>` : ''}
+      ${rhythm ? `<button class="score" id="score" type="button">${renderScore(rhythm)}</button>` : ''}
       <p class="said"><span class="tag">あなた</span>${said ? c.saidHtml : '<span class="faint">聞き取れませんでした</span>'}</p>
       <p class="said" id="repSaid" hidden></p>
-      <p class="meta-line">
-        <span class="num">${rt === null ? '' : `反応 ${(rt / 1000).toFixed(1)}秒`}</span>
-        <button class="link act" data-key="r" type="button">▶ お手本</button>
-        <button class="link act" id="rep" data-key="Space" type="button">● 繰り返す</button>
-      </p>
+      <p class="meta-line num">${rt === null ? '' : `反応 ${(rt / 1000).toFixed(1)}秒`}</p>
+      <div class="tools">
+        <button class="pill" data-key="r" type="button">▶ お手本</button>
+        <button class="pill" id="rep" data-key="Space" type="button">● 繰り返す</button>
+        ${rhythm ? `<button class="pill" data-key="b" type="button">♩ リズム練習 <span class="faint num">${BPM}</span></button>` : ''}
+      </div>
       <div class="grades">
         ${[1, 2, 3].map(g => `<button class="grade${g === sug ? ' is-sug' : ''}" data-key="${g}"><kbd>${g}</kbd>${LABELS[g]}</button>`).join('')}
       </div>
@@ -158,7 +160,7 @@ export function runDrill(done) {
     const weak = results.filter(r => r.g < 3);
     const alt = results.filter(r => r.said && r.score < 0.85);
 
-    chrome({ step: 1, info: '振り返り', keyHint: 'Enter スピーチへ' });
+    chrome({ step: 1, info: '振り返り', keyHint: `Enter ${nextLabel}` });
     view(`<div class="drill summary">
       <p class="eyebrow">ドリルの振り返り</p>
       <div class="plan">
@@ -168,7 +170,7 @@ export function runDrill(done) {
       ${weak.length ? `<ul class="cardlist">${weak.map(r => `<li><span class="ja">${esc(r.card.ja)}</span><span class="en">${esc(r.card.en)}</span></li>`).join('')}</ul>` : ''}
       ${alt.length ? `<button class="ghost" id="alt" type="button">別の言い方をAIで確認(${alt.length}件)</button>
         <p class="help">お手本と違う言い方をした文をまとめてコピーします。無料版の ChatGPT・Claude・Gemini に貼ると、その言い方で通じるかを判定してもらえます。</p>` : ''}
-      <button class="primary" data-key="Enter">スピーチへ</button>
+      <button class="primary" data-key="Enter">${nextLabel}</button>
     </div>`);
 
     const btn = document.getElementById('alt');

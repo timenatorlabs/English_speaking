@@ -8,14 +8,15 @@ const MAX_REVIEWS = 40;
 // Learner-added cards come first: they are the sentences they actually needed.
 export const allCards = () => [...state.custom, ...CARDS];
 
-function plan() {
+// extra: new cards beyond today's limit, for learners who want to keep going.
+function plan(extra = 0) {
   const t = today();
   const all = allCards();
   const due = all
     .filter(c => state.cards[c.id]?.due <= t)
     .sort((a, b) => state.cards[a.id].due.localeCompare(state.cards[b.id].due))
     .slice(0, MAX_REVIEWS);
-  const room = Math.max(0, state.settings.newPerDay - (state.days[t]?.fresh ?? 0));
+  const room = Math.max(0, state.settings.newPerDay - (state.days[t]?.fresh ?? 0)) + extra;
   const fresh = all.filter(c => !state.cards[c.id]).slice(0, room);
   return { due, fresh };
 }
@@ -25,8 +26,8 @@ export function counts() {
   return { due: due.length, fresh: fresh.length };
 }
 
-export function buildQueue() {
-  const { due, fresh } = plan();
+export function buildQueue(extra = 0) {
+  const { due, fresh } = plan(extra);
   return [...due, ...fresh];
 }
 

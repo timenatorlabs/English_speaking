@@ -41,8 +41,7 @@ export function setEscape(fn) {
 export function chrome({ step = null, info = '', keyHint = '' } = {}) {
   bar.hidden = step === null;
   links.hidden = step !== null;
-  document.getElementById('s1').className = step === 1 ? 'is-active' : step > 1 ? 'is-done' : '';
-  document.getElementById('s2').className = step === 2 ? 'is-active' : '';
+  document.getElementById('where').textContent = step === 1 ? '瞬間ドリル' : step === 2 ? 'スピーチ' : '';
   meta.textContent = info;
   hint.textContent = keyHint;
 }
