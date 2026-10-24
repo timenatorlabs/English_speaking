@@ -26,7 +26,11 @@ export function parseRhythm(src) {
   return { pickup, feet };
 }
 
-const noteWidth = s => Math.max(26, s.text.length * (s.stressed ? 7.4 : 6.8) + 12);
+const noteWidth = s => Math.max(22, s.text.length * (s.stressed ? 7.4 : 6.8) + 9);
+
+// Smallest scale for fitting the score on one row; below this the lyrics get hard to read,
+// so a longer sentence wraps instead.
+const MIN_SCALE = 0.7;
 
 // pickup: up to a half beat before the downbeat. foot: one beat.
 function group(sylls, { pickup = false, first = false, last = false } = {}) {
@@ -70,8 +74,22 @@ function group(sylls, { pickup = false, first = false, last = false } = {}) {
   if (tuplet) {
     out += `<text class="tuplet" x="${(stemX(xs[0]) + stemX(xs[n - 1])) / 2}" y="${TOP - 4}">${tuplet}</text>`;
   }
-  return `<svg class="beat" width="${width}" height="${H}" viewBox="0 0 ${width} ${H}" aria-hidden="true">${out}</svg>`;
+  return `<svg class="beat" data-width="${width}" width="${width}" height="${H}" viewBox="0 0 ${width} ${H}" aria-hidden="true">${out}</svg>`;
 }
+
+// Shrinks the score (down to MIN_SCALE) so it fits the width of `root` on one row.
+export function fitScore(root) {
+  if (!root) return;
+  const svgs = [...root.querySelectorAll('svg.beat')];
+  const natural = svgs.reduce((sum, s) => sum + Number(s.dataset.width), 0);
+  const k = Math.min(1, Math.max(MIN_SCALE, (root.clientWidth - 2) / natural));
+  for (const s of svgs) {
+    s.setAttribute('width', (Number(s.dataset.width) * k).toFixed(1));
+    s.setAttribute('height', (H * k).toFixed(1));
+  }
+}
+
+addEventListener('resize', () => fitScore(document.getElementById('score')));
 
 export function renderScore({ pickup, feet }) {
   const parts = [];

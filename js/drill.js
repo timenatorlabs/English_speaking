@@ -5,7 +5,7 @@ import { view, keys, chrome, onLeave, esc, micError } from './ui.js';
 import { listen, speak, stopSpeaking } from './speech.js';
 import { buildQueue, grade } from './srs.js';
 import { previousReaction } from './store.js';
-import { parseRhythm, renderScore, playClick, stopClick, movePlayhead, BPM } from './score.js';
+import { parseRhythm, renderScore, fitScore, playClick, stopClick, movePlayhead, BPM } from './score.js';
 
 const LABELS = { 1: '言えなかった', 2: '詰まった', 3: 'すぐ言えた' };
 
@@ -82,6 +82,7 @@ export function runDrill(done, { extra = 0, next: nextLabel = 'スピーチへ' 
     const repSaid = document.getElementById('repSaid');
     const words = [...document.querySelectorAll('.drill [data-w]')];
     const scoreEl = document.getElementById('score');
+    fitScore(scoreEl);
     const highlight = i => {
       words.forEach(el => el.classList.toggle('speaking', Number(el.dataset.w) === i));
       movePlayhead(scoreEl, scoreEl?.querySelector(`.beat g[data-w="${i}"] .head`));
