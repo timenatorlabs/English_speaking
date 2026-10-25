@@ -8,11 +8,12 @@ import { canListen, unlockSpeech } from './speech.js';
 import { runDrill } from './drill.js';
 import { runTalk } from './talk.js';
 import { showStats } from './stats.js';
+import { beatHome, beatCounts } from './beat.js';
 
 function home() {
   leave();
   setEscape(null);
-  chrome({ keyHint: canListen ? 'Enter 始める · 1 ドリルだけ · 2 スピーチだけ' : '' });
+  chrome({ keyHint: canListen ? 'Enter 始める · 1 ドリルだけ · 2 スピーチだけ · 3 ビート練習' : '' });
 
   if (!canListen) {
     view(`<div class="home">
@@ -38,6 +39,7 @@ function home() {
 
   const level = state.settings.level;
   const progress = levelProgress();
+  const beat = beatCounts();
   view(`<div class="home">
     <p class="eyebrow">今日の練習</p>
     <div class="levels" role="group" aria-label="レベル">
@@ -63,6 +65,14 @@ function home() {
         </span>
         <span class="row-state">${talked ? '✓ 完了<small>押すともう一度</small>' : '約10分'}</span>
       </button>
+      <button class="row" data-key="3" type="button">
+        <span class="row-no">3</span>
+        <span class="row-body">
+          <span class="row-title">ビート練習</span>
+          <span class="row-desc">大事な語だけを聞き取り、リズムに乗せて言う</span>
+        </span>
+        <span class="row-state num">${beat.done}/${beat.total}</span>
+      </button>
     </div>
     <button class="primary" data-key="Enter">${label}</button>
     <p class="streak">${s ? `${s}日連続` : ''}</p>
@@ -79,6 +89,7 @@ function home() {
     Enter: action,
     1: cards ? () => begin(() => runDrill(home, { next: 'ホームへ' })) : extraDrill,
     2: () => begin(() => runTalk(complete)),
+    3: () => begin(beatHome),
   });
 }
 

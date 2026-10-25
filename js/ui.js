@@ -48,7 +48,7 @@ export function chrome({ step = null, info = '', keyHint = '', back = null } = {
   backBtn.hidden = !back;
   bar.hidden = step === null;
   links.hidden = step !== null;
-  document.getElementById('where').textContent = step === 1 ? '瞬間ドリル' : step === 2 ? 'スピーチ' : '';
+  document.getElementById('where').textContent = ['', '瞬間ドリル', 'スピーチ', 'ビート練習'][step ?? 0];
   meta.textContent = info;
   hint.textContent = keyHint;
 }
